@@ -35,13 +35,25 @@ export const viewport: Viewport = {
   themeColor: "#0f172a",
 };
 
+const clerkPublishableKey = process.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY;
+
 export default function RootLayout({
   children,
 }: Readonly<{
   children: React.ReactNode;
 }>) {
+  const Providers = clerkPublishableKey
+    ? ({ children: providerChildren }: { children: React.ReactNode }) => (
+        <ClerkProvider publishableKey={clerkPublishableKey}>
+          {providerChildren}
+        </ClerkProvider>
+      )
+    : ({ children: providerChildren }: { children: React.ReactNode }) => (
+        <>{providerChildren}</>
+      );
+
   return (
-    <ClerkProvider>
+    <Providers>
       <html lang="en">
         <body
           className={`${geistSans.variable} ${geistMono.variable} bg-slate-950 text-slate-100 antialiased`}
@@ -52,6 +64,6 @@ export default function RootLayout({
           </QueryClientProviderWrapper>
         </body>
       </html>
-    </ClerkProvider>
+    </Providers>
   );
 }
