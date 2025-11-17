@@ -55,7 +55,11 @@ export function TodosHomeView() {
           </p>
         </div>
         <button
-          className="flex items-center gap-2 rounded-xl border border-slate-700 px-3 py-2 text-sm font-medium text-slate-100 transition hover:border-slate-500"
+          className={`flex items-center gap-2 rounded-xl border px-3 py-2 text-sm font-medium transition ${
+            completedTodos.length === 0
+              ? "cursor-not-allowed border-slate-800 text-slate-600"
+              : "border-slate-700 text-slate-100 hover:border-slate-500"
+          }`}
           onClick={() => setShowCompleted(true)}
           disabled={completedTodos.length === 0}
         >
@@ -64,7 +68,7 @@ export function TodosHomeView() {
         </button>
       </header>
 
-      <section className="flex flex-1 flex-col gap-6 overflow-hidden rounded-2xl border border-slate-800 bg-slate-900/70 p-6 shadow-xl shadow-slate-950/40 backdrop-blur">
+      <section className="flex flex-1 flex-col gap-6 overflow-hidden rounded-2xl p-6 backdrop-blur">
         <div className="flex-1 space-y-2 overflow-y-auto pr-1">
           {isPending ? (
             <p className="text-center text-sm text-slate-400">Lade Aufgaben…</p>
@@ -138,7 +142,7 @@ export function TodosHomeView() {
         )}
 
         <form
-          className="sticky bottom-0 flex items-center gap-3 border-t border-slate-800 bg-slate-900/90 pt-4 backdrop-blur"
+          className="sticky bottom-0 flex items-center gap-3 border-t border-slate-800 pt-4 backdrop-blur"
           onSubmit={handleSubmit}
         >
           <input
