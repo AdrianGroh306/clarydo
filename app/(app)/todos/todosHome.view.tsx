@@ -1,13 +1,21 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Plus, CheckCircle, X } from "lucide-react";
 import { useTodos } from "./useTodos";
 
+type ExitPreviewTodo = {
+  id: string;
+  text: string;
+};
+
+const EXIT_ANIMATION_MS = 280;
+
 export function TodosHomeView() {
   const [text, setText] = useState("");
-  const [animatingIds, setAnimatingIds] = useState<Set<string>>(new Set());
+  const [exitingTodos, setExitingTodos] = useState<ExitPreviewTodo[]>([]);
   const [showCompleted, setShowCompleted] = useState(false);
+  const exitTimers = useRef<Record<string, ReturnType<typeof setTimeout>>>({});
   const {
     todos,
     isPending,
@@ -29,6 +37,10 @@ export function TodosHomeView() {
     [todos],
   );
 
+  const totalTodos = todos.length;
+  const completedCount = totalTodos - remaining;
+  const completionRatio = totalTodos === 0 ? 0 : completedCount / totalTodos;
+
   const handleSubmit = (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     if (!text.trim()) return;
@@ -38,34 +50,97 @@ export function TodosHomeView() {
     );
   };
 
+  const scheduleExitRemoval = (id: string) => {
+    if (exitTimers.current[id]) return;
+    exitTimers.current[id] = setTimeout(() => {
+      setExitingTodos((prev) => prev.filter((todo) => todo.id !== id));
+      delete exitTimers.current[id];
+    }, EXIT_ANIMATION_MS);
+  };
+
+  const cancelExitAnimation = (id: string) => {
+    if (exitTimers.current[id]) {
+      clearTimeout(exitTimers.current[id]);
+      delete exitTimers.current[id];
+    }
+    setExitingTodos((prev) => prev.filter((todo) => todo.id !== id));
+  };
+
+  const handleToggleTodo = (todo: (typeof todos)[number]) => {
+    const isCompleting = !todo.done;
+    if (isCompleting) {
+      setExitingTodos((prev) =>
+        prev.some((entry) => entry.id === todo.id)
+          ? prev
+          : [...prev, { id: todo.id, text: todo.text }],
+      );
+      scheduleExitRemoval(todo.id);
+    } else {
+      cancelExitAnimation(todo.id);
+    }
+
+    updateTodo.mutate(
+      { id: todo.id, done: !todo.done },
+      {
+        onError: () => cancelExitAnimation(todo.id),
+      },
+    );
+  };
+
   const clearCompletedTodos = () => {
     if (completedTodos.length === 0) return;
     clearCompleted.mutate(completedTodos.map((todo) => todo.id));
   };
 
+  const pendingExitTodos = useMemo(
+    () =>
+      exitingTodos.filter(
+        (todo) => !activeTodos.some((active) => active.id === todo.id),
+      ),
+    [activeTodos, exitingTodos],
+  );
+
+  const hasVisibleTodos =
+    activeTodos.length > 0 || pendingExitTodos.length > 0;
+
+  useEffect(() => {
+    const timers = exitTimers.current;
+    return () => {
+      Object.values(timers).forEach((timer) => clearTimeout(timer));
+    };
+  }, []);
+
   return (
     <main className="mx-auto flex h-screen max-w-3xl flex-col gap-6 overflow-hidden px-4 pt-4 text-slate-100">
-      <header className="flex items-start justify-between gap-4">
-        <div className="space-y-2">
+      <header className="space-y-4">
+        <div className="flex items-center justify-between gap-4">
           <h1 className="text-4xl font-semibold uppercase tracking-[0.35em] text-slate-400">
             Clarydo
           </h1>
-          <p className="text-sm text-slate-400">
-            {remaining} Todos offen · {todos.length} gesamt
-          </p>
+          <button
+            className={`flex items-center gap-2 rounded-xl border px-3 py-2 text-sm font-medium transition ${completedTodos.length === 0
+                ? "cursor-not-allowed border-slate-800 text-slate-600"
+                : "border-slate-700 text-slate-100 hover:border-slate-500"
+              }`}
+            onClick={() => setShowCompleted(true)}
+            disabled={completedTodos.length === 0}
+          >
+            <CheckCircle className="h-4 w-4" />
+            Erledigt
+          </button>
         </div>
-        <button
-          className={`flex items-center gap-2 rounded-xl border px-3 py-2 text-sm font-medium transition ${
-            completedTodos.length === 0
-              ? "cursor-not-allowed border-slate-800 text-slate-600"
-              : "border-slate-700 text-slate-100 hover:border-slate-500"
-          }`}
-          onClick={() => setShowCompleted(true)}
-          disabled={completedTodos.length === 0}
-        >
-          <CheckCircle className="h-4 w-4" />
-          Erledigt
-        </button>
+        <div className="h-2 w-full rounded-full bg-slate-800">
+          <div
+            role="progressbar"
+            aria-label="Todo-Fortschritt"
+            aria-valuemin={0}
+            aria-valuemax={100}
+            aria-valuenow={Math.round(completionRatio * 100)}
+            aria-valuetext={`${completedCount} von ${totalTodos} erledigt`}
+            style={{ width: `${completionRatio * 100}%` }}
+            className="h-full rounded-full bg-linear-to-r from-slate-300 to-slate-50 transition-[width] duration-300 ease-out"
+          />
+        </div>
       </header>
 
       <section className="flex flex-1 flex-col gap-6 overflow-hidden rounded-2xl p-6 backdrop-blur">
@@ -80,51 +155,46 @@ export function TodosHomeView() {
             <p className="rounded-xl border border-dashed border-slate-700/80 px-4 py-8 text-center text-sm text-slate-400">
               Noch keine Einträge – starte unten mit deiner ersten Aufgabe.
             </p>
-          ) : activeTodos.length === 0 ? (
+          ) : !hasVisibleTodos ? (
             <p className="rounded-xl border border-dashed border-slate-700/80 px-4 py-8 text-center text-sm text-slate-400">
               Alle Todos sind erledigt – öffne die Erledigt-Ansicht oben rechts.
             </p>
           ) : (
             <ul className="space-y-2">
-              {activeTodos.map((todo) => {
-                const isAnimating = animatingIds.has(todo.id);
-                return (
-                  <li
-                    key={todo.id}
-                    className={`group flex items-center justify-between rounded-xl border border-slate-700/70 bg-slate-900/80 px-4 py-3 transition-all duration-200 ease-out ${
-                      isAnimating ? "translate-x-4 opacity-0" : "opacity-100"
-                    }`}
-                  >
-                    <label className="flex flex-1 cursor-pointer items-center gap-3">
-                      <span className="text-base text-slate-100 transition-all duration-200">
-                        {todo.text}
-                      </span>
-                    </label>
+              {activeTodos.map((todo) => (
+                <li
+                  key={todo.id}
+                  className="group flex items-center justify-between rounded-xl border border-slate-700/70 bg-slate-900/80 px-4 py-3 transition-all duration-200 ease-out"
+                >
+                  <label className="flex w-full cursor-pointer items-center gap-3">
+                    <span className="flex-1 text-base text-slate-100 transition-all duration-200">
+                      {todo.text}
+                    </span>
                     <input
                       type="checkbox"
                       checked={todo.done}
-                      onChange={() => {
-                        setAnimatingIds((prev) =>
-                          new Set(prev).add(todo.id),
-                        );
-                        updateTodo.mutate(
-                          { id: todo.id, done: !todo.done },
-                          {
-                            onSettled: () => {
-                              setAnimatingIds((prev) => {
-                                const next = new Set(prev);
-                                next.delete(todo.id);
-                                return next;
-                              });
-                            },
-                          },
-                        );
-                      }}
-                      className="h-5 w-5 rounded border-slate-600 bg-slate-900 text-slate-100 focus:ring-slate-200"
+                      onChange={() => handleToggleTodo(todo)}
+                      className="h-6 w-6 cursor-pointer rounded-lg border border-slate-600 bg-slate-900 transition duration-150 hover:border-slate-400 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-slate-500 checked:border-slate-100 checked:bg-slate-100"
                     />
-                  </li>
-                );
-              })}
+                  </label>
+                </li>
+              ))}
+              {pendingExitTodos.map((todo) => (
+                <li
+                  key={`exit-${todo.id}`}
+                  className="group flex items-center justify-between rounded-xl border border-slate-700/70 bg-slate-900/80 px-4 py-3 text-slate-400 line-through transition-all duration-300 ease-in translate-x-4 opacity-0"
+                >
+                  <div className="flex w-full items-center gap-3">
+                    <span className="flex-1">{todo.text}</span>
+                    <input
+                      type="checkbox"
+                      checked
+                      disabled
+                      className="h-6 w-6 cursor-default appearance-none rounded-lg border border-slate-500 bg-slate-100"
+                    />
+                  </div>
+                </li>
+              ))}
             </ul>
           )}
         </div>
@@ -191,10 +261,11 @@ export function TodosHomeView() {
                     <input
                       type="checkbox"
                       checked
-                      onChange={() =>
-                        updateTodo.mutate({ id: todo.id, done: false })
-                      }
-                      className="h-5 w-5 rounded border-slate-600 bg-slate-900 text-slate-100 focus:ring-slate-200"
+                      onChange={() => {
+                        cancelExitAnimation(todo.id);
+                        updateTodo.mutate({ id: todo.id, done: false });
+                      }}
+                      className="h-5 w-5 appearance-auto border-slate-600 bg-slate-900 text-slate-100 focus:ring-slate-200"
                     />
                   </li>
                 ))}
